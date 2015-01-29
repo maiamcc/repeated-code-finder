@@ -5,11 +5,8 @@ import sys
 from hashlib import sha1
 
 # next:
-    # display # of occurances
-    # table view
+    # table view?
     # include the duplicated text from the orig. file?
-    # IGNORE REDUNDANCIES! E.g. ABCDEF is repeated, don't also record CDEF
-        # (unless there are many more cdef's than abcdef??)
 
 MatchingChunk = namedtuple("MatchingChunk", ["hashpattern", "lines1", "lines2"])
 # where 'hashpattern' is a list of hashes (representing the sequence of lines), and 'lines1' and 'lines2' are lists of line #'s
@@ -82,7 +79,7 @@ def readable_results(res):
         output_str = "Lines"
         for lines in val:
             output_str = "%s %s-%s," % (output_str, lines[0], lines[-1])
-        output_str = "%s (%d lines long)" % (output_str[:-1], int(val[0][-1])-int(val[0][0])+1)
+        output_str = "%s (%d lines long, %d occurrences)" % (output_str[:-1], int(val[0][-1])-int(val[0][0])+1, len(val))
         output.append(output_str)
     return "\n".join(output)
 
@@ -135,7 +132,4 @@ if __name__ == '__main__':
 
     clean_dict = remove_redundancies(all_repeats)
 
-    print "here are all of your repeats:\n", readable_results(all_repeats)
-    print "here are only the non-redundant ones:\n", readable_results(clean_dict)
-
-# check out pylint similarity checker
+    print readable_results(clean_dict)
