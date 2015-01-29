@@ -48,6 +48,44 @@ def find_repeats(content_dict, line_dict):
                     add_match_to_results(match, results) # THIS IS NOT FUNCTIONAL PROGRAMMING GAAH
     return results
 
+def add_match_to_results(match, res):
+    """Expects a Match and a defaultdict(list). Adds that match to the given dict, with k = list of sequential
+        content-hashes and v = list of line ranges where that sequence of content-lines occurs."""
+    if tuple(match.hashpattern) not in res: # hash pattern not yet in results dict.
+        res[tuple(match.hashpattern)].extend([match.lines1, match.lines2])
+    else:
+        if match.lines1 not in res[tuple(match.hashpattern)]:
+            # if the first set of lines isn't in results, then NEITHER is... right?
+            res[tuple(match.hashpattern)].extend([match.lines1, match.lines2])
+        elif match.lines2 not in res[tuple(match.hashpattern)]: # first set of lines in results dict., but second set isn't.
+            res[tuple(match.hashpattern)].append(match.lines2)
+
+def remove_redundancies(repeats_dict):
+    """Given a results dict, remove redundancies (repeated-line chunks that only exist as subsets of
+            other repeated-line chunks.)"""
+
+    clean_dict = copy(repeats_dict)
+
+    for pair in combinations(repeats_dict.keys(), 2):
+        if is_redundant(repeats_dict[pair[0]], repeats_dict[pair[1]]):
+            if len(repeats_dict[pair[0]][0]) > len(repeats_dict[pair[1]][0]): # if the first is the longer
+                clean_dict.pop(pair[1], None) # delete the shorter
+            else:
+                clean_dict.pop(pair[0], None)
+
+    return clean_dict
+
+def readable_results(res):
+    """Convert a results dictionary to human-readable output."""
+    output = ["You have repeated chunks at:"]
+    for val in res.values():
+        output_str = "Lines"
+        for lines in val:
+            output_str = "%s %s-%s," % (output_str, lines[0], lines[-1])
+        output_str = "%s (%d lines long)" % (output_str[:-1], int(val[0][-1])-int(val[0][0])+1)
+        output.append(output_str)
+    return "\n".join(output)
+
 def matching_streak(i, j, line_dict):
     """Given two starting indeces, step through content one line at a time from each until content no longer matches.
         Return the longest match (list of line-hashes and the two line-ranges at which it occurs.)"""
@@ -68,49 +106,6 @@ def matching_streak(i, j, line_dict):
             matching = False
     return match
 
-def first_rest(li):
-    """Returns (first, rest) for all possible slices [n:] of given list."""
-    for i in xrange(len(li)-1):
-        yield li[i], li[i+1:]
-
-def add_match_to_results(match, res):
-    """Expects a Match and a defaultdict(list). Adds that match to the given dict, with k = list of sequential
-        content-hashes and v = list of line ranges where that sequence of content-lines occurs."""
-    if tuple(match.hashpattern) not in res: # hash pattern not yet in results dict.
-        res[tuple(match.hashpattern)].extend([match.lines1, match.lines2])
-    else:
-        if match.lines1 not in res[tuple(match.hashpattern)]:
-            # if the first set of lines isn't in results, then NEITHER is... right?
-            res[tuple(match.hashpattern)].extend([match.lines1, match.lines2])
-        elif match.lines2 not in res[tuple(match.hashpattern)]: # first set of lines in results dict., but second set isn't.
-            res[tuple(match.hashpattern)].append(match.lines2)
-
-def readable_results(res):
-    """Convert a results dictionary to human-readable output."""
-    output = ["You have repeated chunks at:"]
-    for val in res.values():
-        output_str = "Lines"
-        for lines in val:
-            output_str = "%s %s-%s," % (output_str, lines[0], lines[-1])
-        output_str = "%s (%d lines long)" % (output_str[:-1], int(val[0][-1])-int(val[0][0])+1)
-        output.append(output_str)
-    return "\n".join(output)
-
-def remove_redundancies(repeats_dict):
-    """Given a results dict, remove redundancies (repeated-line chunks that only exist as subsets of
-            other repeated-line chunks.)"""
-
-    clean_dict = copy(repeats_dict)
-
-    for pair in combinations(repeats_dict.keys(), 2):
-        if is_redundant(repeats_dict[pair[0]], repeats_dict[pair[1]]):
-            if len(repeats_dict[pair[0]][0]) > len(repeats_dict[pair[1]][0]): # if the first is the longer
-                clean_dict.pop(pair[1], None) # delete the shorter
-            else:
-                clean_dict.pop(pair[0], None)
-
-    return clean_dict
-
 def is_redundant(line_list1, line_list2):
     """Given two lists of line ranges (lists of lists), finds if redundant.
         If all line ranges from one list fit inside all line ranges from the other, the two are redundant.
@@ -127,6 +122,11 @@ def is_redundant(line_list1, line_list2):
     compare2 = set(line_list2[0])
 
     return compare1.issubset(compare2) or compare2.issubset(compare1)
+
+def first_rest(li):
+    """Returns (first, rest) for all possible slices [n:] of given list."""
+    for i in xrange(len(li)-1):
+        yield li[i], li[i+1:]
 
 if __name__ == '__main__':
     content_to_lines, lines_to_content = make_dicts(filename)
