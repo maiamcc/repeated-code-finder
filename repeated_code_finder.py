@@ -11,15 +11,18 @@ from hashlib import sha1
     # IGNORE REDUNDANCIES! E.g. ABCDEF is repeated, don't also record CDEF
         # (unless there are many more cdef's than abcdef??)
 
-MatchingChunk = namedtuple("MatchingChunk", ["pattern", "lines1", "lines2"])
-# where 'pattern' is a list of hashes (representing the sequence of lines), and 'lines1' and 'lines2' are lists of line no's
-    # e.g. line list [1,2,3,4] means that this pattern occurs at lines 1-4.
+MatchingChunk = namedtuple("MatchingChunk", ["hashpattern", "lines1", "lines2"])
+# where 'hashpattern' is a list of hashes (representing the sequence of lines), and 'lines1' and 'lines2' are lists of line #'s
+    # e.g. line list [1,2,3,4] means that this hashpattern occurs at lines 1-4.
 MIN_LENGTH = 3 # minimum number of sequential identical lines that will be counted
 args = sys.argv[:]
 script = args.pop(0)
 filename = args.pop(0)
 
 def make_dicts(f):
+    """Makes dicts of the input file:
+        1. content_to_lines -- k = content hash (hash of line of content); v = list of line #s at which the content-line occurs
+        2. lines_to_content -- k = line #; v = hash of content occuring at that line."""
     content_to_lines = defaultdict(list)
     lines_to_content = dict()
     with open(f) as infile:
@@ -31,15 +34,18 @@ def make_dicts(f):
     return content_to_lines, lines_to_content
 
 def find_repeats(content_dict, line_dict):
+    """Given a content-to-line and line-to-content dict., returns a dict. with k = list of sequential content-hashes and
+        v = list of line ranges where that sequence of content-lines occurs.
+        (A line range is a list of lines. E.g. [[1,2,3], [5,6,7]] indicates lines 1-3 and 5-7.)"""
     results = defaultdict(list)
     for line_list in [v for v in content_dict.itervalues() if len(v)>1]:
-    # line_list = list of line no's at which a given content-line occurs
+    # line_list = list of line #s at which a given content-line occurs.
     # (only returns a line_list for content-lines that occur more than once)
         for first, rest in first_rest(line_list):
-            for line_no in rest: # compare every line to every other line
+            for line_no in rest:
                 match = matching_streak(first, line_no, line_dict)
-                if len(match.pattern) >= MIN_LENGTH:
-                    results = add_match_to_results(match, results)
+                if len(match.hashpattern) >= MIN_LENGTH:
+                    add_match_to_results(match, results) # THIS IS NOT FUNCTIONAL PROGRAMMING GAAH
     return results
 
 def matching_streak(i, j, line_dict):
@@ -50,14 +56,15 @@ def matching_streak(i, j, line_dict):
     while matching:
         try:
             if line_dict[i] == line_dict[j]:
-                match.pattern.append(line_dict[i])
+                match.hashpattern.append(line_dict[i])
                 match.lines1.append(i)
                 match.lines2.append(j)
                 i += 1
-                j +=1
+                j += 1
             else:
                 matching = False
-        except KeyError: # DANGER, WILL ROBINSON
+        except KeyError: # catches case in which you fall off the end of the file (i.e. look in dict. for nonexistant line #)
+            # DANGER, WILL ROBINSON -- might be other reasons you'd get a key error!
             matching = False
     return match
 
@@ -66,20 +73,20 @@ def first_rest(li):
     for i in xrange(len(li)-1):
         yield li[i], li[i+1:]
 
-def add_match_to_results(m, res):
-    """Expects a Match and a defaultdict(list)"""
-    if tuple(m.pattern) not in res:
-        res[tuple(m.pattern)].extend([m.lines1, m.lines2])
+def add_match_to_results(match, res):
+    """Expects a Match and a defaultdict(list). Adds that match to the given dict, with k = list of sequential
+        content-hashes and v = list of line ranges where that sequence of content-lines occurs."""
+    if tuple(match.hashpattern) not in res: # hash pattern not yet in results dict.
+        res[tuple(match.hashpattern)].extend([match.lines1, match.lines2])
     else:
-        if m.lines1 not in res[tuple(m.pattern)]:
-            res[tuple(m.pattern)].extend([m.lines1, m.lines2])
-        elif m.lines2 not in res[tuple(m.pattern)]:
-            res[tuple(m.pattern)].append(m.lines2)
-        else:
-            pass
-    return res # a little weird to return it, you're modifying it...
+        if match.lines1 not in res[tuple(match.hashpattern)]:
+            # if the first set of lines isn't in results, then NEITHER is... right?
+            res[tuple(match.hashpattern)].extend([match.lines1, match.lines2])
+        elif match.lines2 not in res[tuple(match.hashpattern)]: # first set of lines in results dict., but second set isn't.
+            res[tuple(match.hashpattern)].append(match.lines2)
 
 def readable_results(res):
+    """Convert a results dictionary to human-readable output."""
     output = ["You have repeated chunks at:"]
     for val in res.values():
         output_str = "Lines"
@@ -90,26 +97,30 @@ def readable_results(res):
     return "\n".join(output)
 
 def remove_redundancies(repeats_dict):
+    """Given a results dict, remove redundancies (repeated-line chunks that only exist as subsets of
+            other repeated-line chunks.)"""
+
     clean_dict = copy(repeats_dict)
 
-    count = 0
     for pair in combinations(repeats_dict.keys(), 2):
         if is_redundant(repeats_dict[pair[0]], repeats_dict[pair[1]]):
             if len(repeats_dict[pair[0]][0]) > len(repeats_dict[pair[1]][0]): # if the first is the longer
-                clean_dict.pop(pair[1], None) #delete the shorter
+                clean_dict.pop(pair[1], None) # delete the shorter
             else:
                 clean_dict.pop(pair[0], None)
-            count += 1
 
     return clean_dict
 
 def is_redundant(line_list1, line_list2):
-    # if all line ranges from lines1 fit inside all line ranges from lines2, return true
-    # else, false
-    # e.g. [[1,2,3], [5,6,7], [10,11,12]] is redundant with [[1,2,3,4], [4,5,6,7], [9,10,11,12]]
-    if len(line_list1) != len(line_list2):
+    """Given two lists of line ranges (lists of lists), finds if redundant.
+        If all line ranges from one list fit inside all line ranges from the other, the two are redundant.
+        E.g. [[1,2,3], [5,6,7], [10,11,12]] is redundant with [[1,2,3,4], [4,5,6,7], [9,10,11,12]]"""
+
+    if len(line_list1) != len(line_list2): # if we have a different number of line ranges, we know they are not
+        # perfectly redundant (i.e. not all instances of the smaller occur within instances of the larger...)
         return False
 
+    # otherwise, we compare the first elem. of each -- if one fits within the other, we know the line range lists are redundant.
     line_list1.sort()
     line_list2.sort()
     compare1 = set(line_list1[0])
@@ -117,16 +128,14 @@ def is_redundant(line_list1, line_list2):
 
     return compare1.issubset(compare2) or compare2.issubset(compare1)
 
-content_to_lines, lines_to_content = make_dicts(filename)
+if __name__ == '__main__':
+    content_to_lines, lines_to_content = make_dicts(filename)
 
-all_repeats = find_repeats(content_to_lines, lines_to_content)
+    all_repeats = find_repeats(content_to_lines, lines_to_content)
 
-clean_dict = remove_redundancies(all_repeats)
+    clean_dict = remove_redundancies(all_repeats)
 
-for k, v in all_repeats.iteritems():
-    print k, v
-
-print "here are all of your repeats:\n", readable_results(all_repeats)
-print "here are only the non-redundant ones:\n", readable_results(clean_dict)
+    print "here are all of your repeats:\n", readable_results(all_repeats)
+    print "here are only the non-redundant ones:\n", readable_results(clean_dict)
 
 # check out pylint similarity checker
