@@ -1,5 +1,5 @@
 from collections import defaultdict, namedtuple
-import copy
+from copy import copy
 from itertools import combinations
 import sys
 from hashlib import sha1
@@ -12,6 +12,8 @@ from hashlib import sha1
         # (unless there are many more cdef's than abcdef??)
 
 MatchingChunk = namedtuple("MatchingChunk", ["pattern", "lines1", "lines2"])
+# where 'pattern' is a list of hashes (representing the sequence of lines), and 'lines1' and 'lines2' are lists of line no's
+    # e.g. line list [1,2,3,4] means that this pattern occurs at lines 1-4.
 MIN_LENGTH = 3 # minimum number of sequential identical lines that will be counted
 args = sys.argv[:]
 script = args.pop(0)
@@ -31,15 +33,18 @@ def make_dicts(f):
 def find_repeats(content_dict, line_dict):
     results = defaultdict(list)
     for line_list in [v for v in content_dict.itervalues() if len(v)>1]:
+    # line_list = list of line no's at which a given content-line occurs
+    # (only returns a line_list for content-lines that occur more than once)
         for first, rest in first_rest(line_list):
-            # print first, rest
-            for line_no in rest:
+            for line_no in rest: # compare every line to every other line
                 match = matching_streak(first, line_no, line_dict)
                 if len(match.pattern) >= MIN_LENGTH:
                     results = add_match_to_results(match, results)
     return results
 
 def matching_streak(i, j, line_dict):
+    """Given two starting indeces, step through content one line at a time from each until content no longer matches.
+        Return the longest match (list of line-hashes and the two line-ranges at which it occurs.)"""
     matching = True
     match = MatchingChunk([],[],[])
     while matching:
@@ -85,41 +90,41 @@ def readable_results(res):
     return "\n".join(output)
 
 def remove_redundancies(repeats_dict):
-    clean_dict = copy.copy(repeats_dict)
-    # # sorting by len of key
-    # sorted_by_len = defaultdict(dict)
+    clean_dict = copy(repeats_dict)
 
-    # for hash_seq, line_list in repeats_dict.iteritems():
-    #     sorted_by_len[len(hash_seq)][hash_seq] = line_list
     count = 0
-    for pair in combinations(clean_dict.keys(), 2):
-        if is_redundant(clean_dict[pair[0]], clean_dict[pair[1]]):
-            if len(clean_dict[pair[0]][0]) > len(clean_dict[pair[1]][0]):
-                del clean_dict[pair[1]]
+    for pair in combinations(repeats_dict.keys(), 2):
+        if is_redundant(repeats_dict[pair[0]], repeats_dict[pair[1]]):
+            if len(repeats_dict[pair[0]][0]) > len(repeats_dict[pair[1]][0]): # if the first is the longer
+                clean_dict.pop(pair[1], None) #delete the shorter
             else:
-                del clean_dict[pair[0]]
+                clean_dict.pop(pair[0], None)
             count += 1
 
-    print "COUNT: ", count
     return clean_dict
 
 def is_redundant(line_list1, line_list2):
     # if all line ranges from lines1 fit inside all line ranges from lines2, return true
     # else, false
-    # [1,2,3], [5,6,7], [10,11,12] ... [4,5,6,7], [9,10,11,12]
+    # e.g. [[1,2,3], [5,6,7], [10,11,12]] is redundant with [[1,2,3,4], [4,5,6,7], [9,10,11,12]]
     if len(line_list1) != len(line_list2):
         return False
 
     line_list1.sort()
     line_list2.sort()
+    compare1 = set(line_list1[0])
+    compare2 = set(line_list2[0])
 
-    return all([set(r2).issubset(r1) for r1,r2 in zip(line_list1, line_list2)])
+    return compare1.issubset(compare2) or compare2.issubset(compare1)
 
 content_to_lines, lines_to_content = make_dicts(filename)
 
 all_repeats = find_repeats(content_to_lines, lines_to_content)
 
 clean_dict = remove_redundancies(all_repeats)
+
+for k, v in all_repeats.iteritems():
+    print k, v
 
 print "here are all of your repeats:\n", readable_results(all_repeats)
 print "here are only the non-redundant ones:\n", readable_results(clean_dict)
