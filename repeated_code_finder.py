@@ -12,6 +12,7 @@ MatchingChunk = namedtuple("MatchingChunk", ["hashpattern", "lines1", "lines2"])
 # where 'hashpattern' is a list of hashes (representing the sequence of lines), and 'lines1' and 'lines2' are lists of line #'s
     # e.g. line list [1,2,3,4] means that this hashpattern occurs at lines 1-4.
 MIN_LENGTH = 3 # minimum number of sequential identical lines that will be counted
+MIN_OCCURRANCES = 5
 args = sys.argv[:]
 script = args.pop(0)
 filename = args.pop(0)
@@ -125,11 +126,19 @@ def first_rest(li):
     for i in xrange(len(li)-1):
         yield li[i], li[i+1:]
 
+def apply_results_floor(d, floor):
+    """Given a dictionary d, remove all entries with less than (floor) values."""
+    output = copy(d)
+    for k, v in d.iteritems():
+        if len(v) < floor:
+            del output[k]
+    return output
+
 if __name__ == '__main__':
     content_to_lines, lines_to_content = make_dicts(filename)
 
     all_repeats = find_repeats(content_to_lines, lines_to_content)
-
+    all_repeats = apply_results_floor(all_repeats, MIN_OCCURRANCES)
     clean_dict = remove_redundancies(all_repeats)
 
     print readable_results(clean_dict)
