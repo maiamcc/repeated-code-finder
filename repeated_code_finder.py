@@ -2,17 +2,19 @@ from collections import defaultdict, namedtuple
 from copy import copy
 from itertools import combinations
 import sys
+from terminaltables import AsciiTable
 from hashlib import sha1
 
 # next:
     # table view?
     # include the duplicated text from the orig. file?
+    # sort-ability?
 
 MatchingChunk = namedtuple("MatchingChunk", ["hashpattern", "lines1", "lines2"])
 # where 'hashpattern' is a list of hashes (representing the sequence of lines), and 'lines1' and 'lines2' are lists of line #'s
     # e.g. line list [1,2,3,4] means that this hashpattern occurs at lines 1-4.
 MIN_LENGTH = 3 # minimum number of sequential identical lines that will be counted
-MIN_OCCURRANCES = 5
+MIN_OCCURRANCES = 2
 args = sys.argv[:]
 script = args.pop(0)
 filename = args.pop(0)
@@ -134,6 +136,19 @@ def apply_results_floor(d, floor):
             del output[k]
     return output
 
+def format_terminaltables(d):
+    table_data = [["Content", "# Lines", "Line no.'s", "# Times"]]
+    for k, v in d.iteritems():
+        content_hashes = "\n".join(k)
+        num_of_lines = str(len(k))
+        row_list = ", ".join(["%s-%s" % (lines[0], lines[-1]) for lines in v])
+        num_of_occurrances = str(len(v))
+        table_data.append([content_hashes, num_of_lines, row_list, num_of_occurrances])
+        table_data.append(["","","",""])
+
+    table = AsciiTable(table_data)
+    return table.table
+
 if __name__ == '__main__':
     content_to_lines, lines_to_content = make_dicts(filename)
 
@@ -141,4 +156,5 @@ if __name__ == '__main__':
     all_repeats = apply_results_floor(all_repeats, MIN_OCCURRANCES)
     clean_dict = remove_redundancies(all_repeats)
 
-    print readable_results(clean_dict)
+    # print readable_results(clean_dict)
+    print format_terminaltables(clean_dict)
