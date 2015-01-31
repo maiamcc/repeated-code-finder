@@ -5,38 +5,45 @@ import sys
 from terminaltables import AsciiTable
 from hashlib import sha1
 
-# next:
-    # table view?
-    # include the duplicated text from the orig. file?
-    # sort-ability?
+# TODO:
+    # sort-ability? (e.g. by len, # of occurrances, etc.?)
 
 MatchingChunk = namedtuple("MatchingChunk", ["hashpattern", "lines1", "lines2"])
 # where 'hashpattern' is a list of hashes (representing the sequence of lines), and 'lines1' and 'lines2' are lists of line #'s
     # e.g. line list [1,2,3,4] means that this hashpattern occurs at lines 1-4.
-MIN_LENGTH = 3 # minimum number of sequential identical lines that will be counted
-MIN_OCCURRANCES = 2
+MIN_LENGTH = 3 # min. number of sequential identical lines that will be counted
+MIN_OCCURRANCES = 2 # min. number of times a repeated chunk has to occur to be counted
+
+# get filename from command line arguments
 args = sys.argv[:]
 script = args.pop(0)
 filename = args.pop(0)
 
 def make_dicts(f):
     """Makes dicts of the input file:
-        1. content_to_lines -- k = content hash (hash of line of content); v = list of line #s at which the content-line occurs
-        2. lines_to_content -- k = line #; v = hash of content occuring at that line."""
-    content_to_lines = defaultdict(list)
-    lines_to_content = dict()
+        1. hash_to_lines -- k = content hash (hash of line of content); v = list of line #s
+            at which the content-line occurs
+        2. lines_to_hash -- k = line #; v = hash of content occuring at that line.
+        3. hash_to_content -- k = content hash; v = original content."""
+    hash_to_lines = defaultdict(list)
+    lines_to_hash = dict()
+    hash_to_content = dict()
     with open(f) as infile:
         for i, line in enumerate(infile):
             # TODO: ignore comments, whitespace, etc.?
             line = line.strip()
-            content_to_lines[sha1(line).hexdigest()].append(i+1)
-            lines_to_content[i+1] = sha1(line).hexdigest()
-    return content_to_lines, lines_to_content
+            content_hash = sha1(line).hexdigest()
+            hash_to_lines[content_hash].append(i+1)
+            lines_to_hash[i+1] = content_hash
+            hash_to_content[content_hash] = line
+    return hash_to_lines, lines_to_hash, hash_to_content
 
 def find_repeats(content_dict, line_dict):
-    """Given a content-to-line and line-to-content dict., returns a dict. with k = list of sequential content-hashes and
-        v = list of line ranges where that sequence of content-lines occurs.
-        (A line range is a list of lines. E.g. [[1,2,3], [5,6,7]] indicates lines 1-3 and 5-7.)"""
+    """Given a content-to-line and line-to-content dict., returns a dict. with k = list of
+        sequential content-hashes and v = list of line ranges where that sequence of
+        content-lines occurs.
+
+    (A line range is a list of lines. E.g. [[1,2,3], [5,6,7]] indicates lines 1-3 and 5-7.)"""
     results = defaultdict(list)
     for line_list in [v for v in content_dict.itervalues() if len(v)>1]:
     # line_list = list of line #s at which a given content-line occurs.
@@ -49,8 +56,9 @@ def find_repeats(content_dict, line_dict):
     return results
 
 def add_match_to_results(match, res):
-    """Expects a Match and a defaultdict(list). Adds that match to the given dict, with k = list of sequential
-        content-hashes and v = list of line ranges where that sequence of content-lines occurs."""
+    """Expects a Match and a defaultdict(list). Adds that match to the given dict, with
+        k = list of sequential content-hashes and v = list of line ranges where that
+        sequence of content-lines occurs."""
     if tuple(match.hashpattern) not in res: # hash pattern not yet in results dict.
         res[tuple(match.hashpattern)].extend([match.lines1, match.lines2])
     else:
@@ -61,12 +69,12 @@ def add_match_to_results(match, res):
             res[tuple(match.hashpattern)].append(match.lines2)
 
 def remove_redundancies(repeats_dict):
-    """Given a results dict, remove redundancies (repeated-line chunks that only exist as subsets of
-            other repeated-line chunks.)"""
+    """Given a dict of repeated chunks and where they occur, remove redundancies
+        (repeated-line chunks that only exist as subsets of other repeated-line chunks.)"""
 
     clean_dict = copy(repeats_dict)
 
-    for pair in combinations(repeats_dict.keys(), 2):
+    for pair in combinations(repeats_dict.keys(), 2): # check every pair of entries
         if is_redundant(repeats_dict[pair[0]], repeats_dict[pair[1]]):
             if len(repeats_dict[pair[0]][0]) > len(repeats_dict[pair[1]][0]): # if the first is the longer
                 clean_dict.pop(pair[1], None) # delete the shorter
@@ -75,20 +83,23 @@ def remove_redundancies(repeats_dict):
 
     return clean_dict
 
-def readable_results(res):
-    """Convert a results dictionary to human-readable output."""
-    output = ["You have repeated chunks at:"]
-    for val in res.values():
-        output_str = "Lines"
-        for lines in val:
-            output_str = "%s %s-%s," % (output_str, lines[0], lines[-1])
-        output_str = "%s (%d lines long, %d occurrences)" % (output_str[:-1], int(val[0][-1])-int(val[0][0])+1, len(val))
-        output.append(output_str)
-    return "\n".join(output)
+def format_table(d, content_dict):
+    table_data = [["Content", "# Lines", "Line no.'s", "# Times"]]
+    for hashlist, lineslist in d.iteritems():
+        orig_content = "\n".join(content_dict[hash] for hash in hashlist)
+        num_of_lines = str(len(hashlist))
+        row_list = ", ".join(["%s-%s" % (lines[0], lines[-1]) for lines in lineslist])
+        num_of_occurrances = str(len(lineslist))
+        table_data.append([orig_content, num_of_lines, row_list, num_of_occurrances])
+        table_data.append(["-----","-----","-----","-----"])
+
+    table = AsciiTable(table_data)
+    return table.table
 
 def matching_streak(i, j, line_dict):
-    """Given two starting indeces, step through content one line at a time from each until content no longer matches.
-        Return the longest match (list of line-hashes and the two line-ranges at which it occurs.)"""
+    """Given two starting indeces, step through content one line at a time from each until
+        content no longer matches. Return the longest match (list of line-hashes and the
+        two line-ranges at which it occurs.)"""
     matching = True
     match = MatchingChunk([],[],[])
     while matching:
@@ -108,14 +119,17 @@ def matching_streak(i, j, line_dict):
 
 def is_redundant(line_list1, line_list2):
     """Given two lists of line ranges (lists of lists), finds if redundant.
-        If all line ranges from one list fit inside all line ranges from the other, the two are redundant.
-        E.g. [[1,2,3], [5,6,7], [10,11,12]] is redundant with [[1,2,3,4], [4,5,6,7], [9,10,11,12]]"""
+        If all line ranges from one list fit inside all line ranges from the other,
+        the two are redundant.
+    E.g. [[1,2,3], [5,6,7], [10,11,12]] is redundant with [[1,2,3,4], [4,5,6,7], [9,10,11,12]]"""
 
-    if len(line_list1) != len(line_list2): # if we have a different number of line ranges, we know they are not
-        # perfectly redundant (i.e. not all instances of the smaller occur within instances of the larger...)
+    if len(line_list1) != len(line_list2): # if we have a different number of line ranges,
+        # we know they are not perfectly redundant (i.e. not all instances of the smaller
+        # occur within instances of the larger...)
         return False
 
-    # otherwise, we compare the first elem. of each -- if one fits within the other, we know the line range lists are redundant.
+    # otherwise, we compare the first elem. of each -- if one fits within the other, we know
+        # the line range lists are redundant.
     line_list1.sort()
     line_list2.sort()
     compare1 = set(line_list1[0])
@@ -124,7 +138,7 @@ def is_redundant(line_list1, line_list2):
     return compare1.issubset(compare2) or compare2.issubset(compare1)
 
 def first_rest(li):
-    """Returns (first, rest) for all possible slices [n:] of given list."""
+    """Returns (first, rest) for all possible slices [n:] of given list li."""
     for i in xrange(len(li)-1):
         yield li[i], li[i+1:]
 
@@ -136,25 +150,11 @@ def apply_results_floor(d, floor):
             del output[k]
     return output
 
-def format_terminaltables(d):
-    table_data = [["Content", "# Lines", "Line no.'s", "# Times"]]
-    for k, v in d.iteritems():
-        content_hashes = "\n".join(k)
-        num_of_lines = str(len(k))
-        row_list = ", ".join(["%s-%s" % (lines[0], lines[-1]) for lines in v])
-        num_of_occurrances = str(len(v))
-        table_data.append([content_hashes, num_of_lines, row_list, num_of_occurrances])
-        table_data.append(["","","",""])
-
-    table = AsciiTable(table_data)
-    return table.table
-
 if __name__ == '__main__':
-    content_to_lines, lines_to_content = make_dicts(filename)
+    hash_to_lines, lines_to_hash, hash_to_content = make_dicts(filename)
 
-    all_repeats = find_repeats(content_to_lines, lines_to_content)
+    all_repeats = find_repeats(hash_to_lines, lines_to_hash)
     all_repeats = apply_results_floor(all_repeats, MIN_OCCURRANCES)
     clean_dict = remove_redundancies(all_repeats)
 
-    # print readable_results(clean_dict)
-    print format_terminaltables(clean_dict)
+    print format_table(clean_dict, hash_to_content)
